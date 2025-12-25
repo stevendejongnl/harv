@@ -1,0 +1,13 @@
+[Unit]
+Description=Harvest-Jira Git Commit Sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.cargo/bin/harjira sync --quiet --auto-start --auto-stop
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

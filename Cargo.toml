@@ -1,0 +1,44 @@
+[package]
+name = "harjira"
+version = "0.1.0"
+edition = "2021"
+authors = ["Steven de Jong"]
+description = "Automatic Harvest time tracking based on Jira tickets in git commits"
+
+[dependencies]
+# CLI & argument parsing
+clap = { version = "4.5", features = ["derive", "cargo"] }
+
+# HTTP client for APIs
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Git operations
+git2 = "0.19"
+
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# User prompts
+dialoguer = "0.11"
+console = "0.15"
+
+# Logging
+env_logger = "0.11"
+log = "0.4"
+
+# Regex for ticket parsing
+regex = "1.11"
+lazy_static = "1.4"
+
+[dev-dependencies]
+mockito = "1.6"
+tempfile = "3.10"

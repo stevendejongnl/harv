@@ -1,0 +1,21 @@
+# Rust build artifacts
+/target
+Cargo.lock
+
+# Configuration with secrets
+config.toml
+*.toml.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
