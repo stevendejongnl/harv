@@ -1,5 +1,5 @@
 use crate::error::{HarjiraError, Result};
-use crate::models::{HarvestProject, ProposedTimeEntry, Ticket, TimeEntry};
+use crate::models::{EntryType, HarvestProject, HarvestTask, ProposedTimeEntry, Ticket, TimeEntry};
 use console::style;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Editor, Input, MultiSelect, Select};
@@ -261,4 +261,243 @@ pub fn review_and_approve_entries(
     }
 
     Ok(approved)
+}
+
+/// Prompt user to select entry type (running timer vs stopped entry)
+pub fn prompt_entry_type() -> Result<EntryType> {
+    let items = vec![
+        "Running timer (start now, stop later)",
+        "Stopped entry (specify hours worked)",
+    ];
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("What type of entry would you like to create?")
+        .items(&items)
+        .default(0)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    match selection {
+        0 => Ok(EntryType::Running),
+        1 => Ok(EntryType::Stopped),
+        _ => unreachable!(),
+    }
+}
+
+/// Prompt user to select a date
+pub fn prompt_date_selection() -> Result<String> {
+    use chrono::{Duration, Local};
+
+    let today = Local::now().date_naive();
+
+    // Build list of recent dates
+    let mut items = Vec::new();
+    items.push(format!("Today ({})", today.format("%Y-%m-%d")));
+    items.push(format!(
+        "Yesterday ({})",
+        (today - Duration::days(1)).format("%Y-%m-%d")
+    ));
+
+    for i in 2..=6 {
+        let date = today - Duration::days(i);
+        items.push(format!("{} days ago ({})", i, date.format("%Y-%m-%d")));
+    }
+
+    items.push("Custom date...".to_string());
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select date for time entry")
+        .items(&items)
+        .default(0)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    if selection == 7 {
+        // Custom date input
+        prompt_custom_date()
+    } else {
+        // Extract date from selected item
+        let date = today - Duration::days(selection as i64);
+        Ok(date.format("%Y-%m-%d").to_string())
+    }
+}
+
+/// Prompt for custom date input with validation
+fn prompt_custom_date() -> Result<String> {
+    use chrono::{Duration, Local, NaiveDate};
+
+    let today = Local::now().date_naive();
+    let min_date = today - Duration::days(90); // 90 days back limit
+
+    let date_str: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Enter date (YYYY-MM-DD)")
+        .validate_with(|input: &String| -> std::result::Result<(), &str> {
+            match NaiveDate::parse_from_str(input, "%Y-%m-%d") {
+                Ok(date) => {
+                    if date > today {
+                        Err("Date cannot be in the future")
+                    } else if date < min_date {
+                        Err("Date must be within the last 90 days")
+                    } else {
+                        Ok(())
+                    }
+                }
+                Err(_) => Err("Invalid date format. Use YYYY-MM-DD (e.g., 2025-12-24)"),
+            }
+        })
+        .interact_text()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    Ok(date_str)
+}
+
+/// Prompt user to select a project
+pub fn prompt_project_selection(projects: &[HarvestProject]) -> Result<HarvestProject> {
+    if projects.is_empty() {
+        return Err(HarjiraError::Config(
+            "No active projects found in your Harvest account".to_string(),
+        ));
+    }
+
+    let items: Vec<String> = projects
+        .iter()
+        .map(|p| {
+            if let Some(code) = &p.code {
+                format!("{} [{}]", p.name, code)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect();
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select project")
+        .items(&items)
+        .default(0)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    Ok(projects[selection].clone())
+}
+
+/// Prompt user to select a task
+pub fn prompt_task_selection(tasks: &[HarvestTask]) -> Result<HarvestTask> {
+    if tasks.is_empty() {
+        return Err(HarjiraError::Config(
+            "No tasks available for the selected project".to_string(),
+        ));
+    }
+
+    let items: Vec<String> = tasks.iter().map(|t| t.name.clone()).collect();
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select task")
+        .items(&items)
+        .default(0)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    Ok(tasks[selection].clone())
+}
+
+/// Prompt for time entry description
+pub fn prompt_description() -> Result<String> {
+    let description: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Enter description")
+        .validate_with(|input: &String| -> std::result::Result<(), &str> {
+            if input.trim().is_empty() {
+                Err("Description cannot be empty")
+            } else if input.len() > 500 {
+                Err("Description too long (max 500 characters)")
+            } else {
+                Ok(())
+            }
+        })
+        .interact_text()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    Ok(description.trim().to_string())
+}
+
+/// Prompt for hours with validation
+pub fn prompt_hours() -> Result<f64> {
+    let hours: f64 = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Enter hours (e.g., 2.5)")
+        .validate_with(|input: &f64| -> std::result::Result<(), &str> {
+            if *input <= 0.0 {
+                Err("Hours must be greater than 0")
+            } else if *input > 24.0 {
+                Err("Hours cannot exceed 24")
+            } else {
+                Ok(())
+            }
+        })
+        .interact_text()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    Ok(hours)
+}
+
+/// Confirm entry creation with full details
+pub fn confirm_entry_creation(
+    entry_type: &EntryType,
+    date: &str,
+    project: &str,
+    task: &str,
+    description: &str,
+    hours: Option<f64>,
+) -> Result<bool> {
+    println!();
+    println!("{}", style("=".repeat(60)).cyan().bold());
+    println!("{}", style("Entry Summary").cyan().bold());
+    println!("{}", style("=".repeat(60)).cyan().bold());
+    println!(
+        "Type:        {}",
+        match entry_type {
+            EntryType::Running => style("Running Timer").green(),
+            EntryType::Stopped => style("Stopped Entry").yellow(),
+        }
+    );
+    println!("Date:        {}", style(date).white());
+    println!("Project:     {}", style(project).white());
+    println!("Task:        {}", style(task).white());
+    println!("Description: {}", style(description).white());
+    if let Some(h) = hours {
+        println!("Hours:       {}", style(format!("{:.2}h", h)).green().bold());
+    }
+    println!("{}", style("=".repeat(60)).cyan().bold());
+    println!();
+
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Create this entry?")
+        .default(true)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)
+}
+
+/// Confirm stopping existing timer for new manual entry
+pub fn confirm_stop_timer_for_new(current_timer: &TimeEntry) -> Result<bool> {
+    let current_notes = current_timer
+        .notes
+        .as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or("Unknown");
+
+    println!(
+        "\n{}",
+        style("⚠ Timer currently running:").yellow().bold()
+    );
+    println!("   {}", current_notes);
+
+    if let Some(hours) = current_timer.hours {
+        println!("   Duration: {:.2} hours", hours);
+    }
+
+    println!();
+
+    Confirm::with_theme(&ColorfulTheme::default())
+        .with_prompt("Stop current timer to create new entry?")
+        .default(false)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)
 }

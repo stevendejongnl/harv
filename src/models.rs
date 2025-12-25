@@ -181,3 +181,16 @@ pub struct UserProjectAssignment {
     pub project: HarvestProject,
     pub task_assignments: Vec<TaskAssignment>,
 }
+
+/// Type of time entry to create
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EntryType {
+    Running,
+    Stopped,
+}
+
+impl EntryType {
+    pub fn is_running(&self) -> bool {
+        matches!(self, EntryType::Running)
+    }
+}

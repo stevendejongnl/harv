@@ -47,6 +47,9 @@ enum Commands {
     /// Stop the currently running Harvest timer
     Stop,
 
+    /// Manually add a time entry with interactive prompts
+    Add,
+
     /// Generate time entries from a work summary using AI
     Generate {
         /// Natural language summary of work done today
@@ -122,6 +125,7 @@ fn main() {
         }
         Some(Commands::Status) => run_status(ctx),
         Some(Commands::Stop) => run_stop(ctx),
+        Some(Commands::Add) => run_add(ctx),
         Some(Commands::Generate {
             summary,
             provider,
@@ -564,6 +568,124 @@ fn run_generate(
         // Show new total
         let new_total = harvest_client.get_total_hours_today()?;
         println!("\nTotal time today: {:.2} hours", new_total);
+    }
+
+    Ok(())
+}
+
+fn run_add(ctx: models::Context) -> Result<()> {
+    use crate::models::EntryType;
+
+    info!("Starting manual time entry creation...");
+
+    // Load configuration
+    let config = Config::load()?;
+    let harvest_client = HarvestClient::new(config.harvest.clone())?;
+
+    // Step 1: Select entry type
+    let entry_type = prompt::prompt_entry_type()?;
+
+    // Step 2: Select date
+    let spent_date = prompt::prompt_date_selection()?;
+
+    // Step 3: Fetch and select project
+    if !ctx.quiet {
+        prompt::display_info("Fetching available projects...");
+    }
+    let projects = harvest_client.get_projects()?;
+    let selected_project = prompt::prompt_project_selection(&projects)?;
+
+    // Step 4: Fetch and select task
+    if !ctx.quiet {
+        prompt::display_info("Fetching tasks...");
+    }
+    let tasks = harvest_client.get_project_tasks(selected_project.id)?;
+    let selected_task = prompt::prompt_task_selection(&tasks)?;
+
+    // Step 5: Enter description
+    let description = prompt::prompt_description()?;
+
+    // Step 6: Enter hours (only for stopped entries)
+    let hours = if entry_type.is_running() {
+        None
+    } else {
+        Some(prompt::prompt_hours()?)
+    };
+
+    // Step 7: Confirm
+    let confirmed = prompt::confirm_entry_creation(
+        &entry_type,
+        &spent_date,
+        &selected_project.name,
+        &selected_task.name,
+        &description,
+        hours,
+    )?;
+
+    if !confirmed {
+        if !ctx.quiet {
+            prompt::display_info("Entry creation cancelled");
+        }
+        return Ok(());
+    }
+
+    // Step 8: Check for running timer (if creating running timer)
+    if entry_type.is_running() {
+        if let Some(timer) = harvest_client.get_running_timer()? {
+            let should_stop = prompt::confirm_stop_timer_for_new(&timer)?;
+            if !should_stop {
+                if !ctx.quiet {
+                    prompt::display_info("Keeping current timer running");
+                }
+                return Ok(());
+            }
+            harvest_client.stop_time_entry(timer.id, &ctx)?;
+            if !ctx.quiet {
+                prompt::display_success("Stopped previous timer");
+            }
+        }
+    }
+
+    // Step 9: Create entry
+    match entry_type {
+        EntryType::Running => {
+            harvest_client.create_time_entry_with_date(
+                &description,
+                selected_project.id,
+                selected_task.id,
+                &spent_date,
+                &ctx,
+            )?;
+            if !ctx.quiet {
+                prompt::display_success(&format!(
+                    "Started timer: {} - {}",
+                    selected_project.name, description
+                ));
+            }
+        }
+        EntryType::Stopped => {
+            let hours_val = hours.unwrap();
+            harvest_client.create_stopped_time_entry_with_date(
+                &description,
+                selected_project.id,
+                selected_task.id,
+                hours_val,
+                &spent_date,
+                &ctx,
+            )?;
+            if !ctx.quiet {
+                prompt::display_success(&format!(
+                    "Created entry: {} ({:.2}h) on {}",
+                    description, hours_val, spent_date
+                ));
+            }
+        }
+    }
+
+    // Show total for the date
+    if !ctx.quiet {
+        let total = harvest_client.get_total_hours_for_date(&spent_date)?;
+        println!("\nTotal time on {}: {:.2} hours", spent_date, total);
     }
 
     Ok(())
