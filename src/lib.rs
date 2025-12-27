@@ -7,6 +7,7 @@ pub mod jira;
 pub mod models;
 pub mod prompt;
 pub mod ticket_parser;
+pub mod usage;
 
 // Re-export commonly used types
 pub use config::Config;

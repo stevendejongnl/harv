@@ -582,6 +582,9 @@ fn run_add(ctx: models::Context) -> Result<()> {
     let config = Config::load()?;
     let harvest_client = HarvestClient::new(config.harvest.clone())?;
 
+    // Load usage cache for sorting
+    let mut usage_cache = usage::UsageCache::load()?;
+
     // Step 1: Select entry type
     let entry_type = prompt::prompt_entry_type()?;
 
@@ -592,14 +595,16 @@ fn run_add(ctx: models::Context) -> Result<()> {
     if !ctx.quiet {
         prompt::display_info("Fetching available projects...");
     }
-    let projects = harvest_client.get_projects()?;
+    let mut projects = harvest_client.get_projects()?;
+    projects = usage::sort_by_usage(projects, |p| usage_cache.get_project_score(p.id));
     let selected_project = prompt::prompt_project_selection(&projects)?;
 
     // Step 4: Fetch and select task
     if !ctx.quiet {
         prompt::display_info("Fetching tasks...");
     }
-    let tasks = harvest_client.get_project_tasks(selected_project.id)?;
+    let mut tasks = harvest_client.get_project_tasks(selected_project.id)?;
+    tasks = usage::sort_by_usage(tasks, |t| usage_cache.get_task_score(t.id));
     let selected_task = prompt::prompt_task_selection(&tasks)?;
 
     // Step 5: Enter description
@@ -680,6 +685,13 @@ fn run_add(ctx: models::Context) -> Result<()> {
                 ));
             }
         }
+    }
+
+    // Record usage for future sorting (skip in dry-run mode)
+    if !ctx.dry_run {
+        usage_cache.record_project_usage(selected_project.id);
+        usage_cache.record_task_usage(selected_task.id);
+        usage_cache.save()?;
     }
 
     // Show total for the date

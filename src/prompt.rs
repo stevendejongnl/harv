@@ -2,7 +2,7 @@ use crate::error::{HarjiraError, Result};
 use crate::models::{EntryType, HarvestProject, HarvestTask, ProposedTimeEntry, Ticket, TimeEntry};
 use console::style;
 use dialoguer::theme::ColorfulTheme;
-use dialoguer::{Confirm, Editor, Input, MultiSelect, Select};
+use dialoguer::{Confirm, Editor, FuzzySelect, Input, MultiSelect, Select};
 
 /// Prompt user to select a Jira ticket from multiple options
 pub fn prompt_ticket_selection(tickets: &[Ticket]) -> Result<Ticket> {
@@ -370,8 +370,8 @@ pub fn prompt_project_selection(projects: &[HarvestProject]) -> Result<HarvestPr
         })
         .collect();
 
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select project")
+    let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select project (type to search)")
         .items(&items)
         .default(0)
         .interact()
@@ -390,8 +390,8 @@ pub fn prompt_task_selection(tasks: &[HarvestTask]) -> Result<HarvestTask> {
 
     let items: Vec<String> = tasks.iter().map(|t| t.name.clone()).collect();
 
-    let selection = Select::with_theme(&ColorfulTheme::default())
-        .with_prompt("Select task")
+    let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select task (type to search)")
         .items(&items)
         .default(0)
         .interact()

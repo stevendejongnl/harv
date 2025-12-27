@@ -194,3 +194,16 @@ impl EntryType {
         matches!(self, EntryType::Running)
     }
 }
+
+// Implement HasName trait for usage tracking
+impl crate::usage::HasName for HarvestProject {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+impl crate::usage::HasName for HarvestTask {
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
