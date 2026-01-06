@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use harjira::*;
 use log::{error, info};
 use std::process;
@@ -65,8 +65,9 @@ enum Commands {
         auto_approve: bool,
 
         /// Target hours for the day (default: from config or 8.0)
+        /// Supports decimal (e.g., 1.5) or colon format (e.g., 1:30)
         #[arg(long)]
-        target_hours: Option<f64>,
+        target_hours: Option<String>,
     },
 
     /// Configuration management
@@ -144,8 +145,17 @@ fn main() {
     };
 
     if let Err(e) = result {
-        error!("{}", e);
-        process::exit(1);
+        match e {
+            HarjiraError::ShowHelp => {
+                // Show help and exit cleanly
+                Cli::command().print_help().ok();
+                process::exit(0);
+            }
+            _ => {
+                error!("{}", e);
+                process::exit(1);
+            }
+        }
     }
 }
 
@@ -368,7 +378,7 @@ fn run_generate(
     summary: Option<String>,
     provider_override: Option<String>,
     auto_approve: bool,
-    target_hours_override: Option<f64>,
+    target_hours_override: Option<String>,
 ) -> Result<()> {
     info!("Starting AI-powered time entry generation...");
 
@@ -387,8 +397,9 @@ fn run_generate(
     if let Some(provider) = provider_override {
         config.ai.provider = provider;
     }
-    if let Some(target) = target_hours_override {
-        config.ai.target_hours = target;
+    if let Some(target_str) = target_hours_override {
+        let parsed = time_parser::parse_hours(&target_str)?;
+        config.ai.target_hours = parsed;
     }
 
     // Get summary from user if not provided

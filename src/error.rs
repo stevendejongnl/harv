@@ -37,6 +37,9 @@ pub enum HarjiraError {
 
     #[error("Invalid time entry: {0}")]
     InvalidEntry(String),
+
+    #[error("Show help")]
+    ShowHelp,
 }
 
 pub type Result<T> = std::result::Result<T, HarjiraError>;

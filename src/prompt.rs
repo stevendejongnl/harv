@@ -199,18 +199,19 @@ pub fn review_and_approve_entries(
             println!("{}", style("=".repeat(60)).cyan());
 
             // Edit hours
-            let new_hours: f64 = Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("Hours")
-                .default(entry.hours)
-                .validate_with(|input: &f64| -> std::result::Result<(), &str> {
-                    if *input > 0.0 && *input <= 24.0 {
-                        Ok(())
-                    } else {
-                        Err("Hours must be between 0 and 24")
+            let hours_str: String = Input::with_theme(&ColorfulTheme::default())
+                .with_prompt("Hours (e.g., 1.5 or 1:30)")
+                .default(format!("{:.2}", entry.hours))
+                .validate_with(|input: &String| -> std::result::Result<(), String> {
+                    match crate::time_parser::parse_hours(input) {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(e.to_string()),
                     }
                 })
                 .interact_text()
                 .map_err(|_| HarjiraError::UserCancelled)?;
+
+            let new_hours = crate::time_parser::parse_hours(&hours_str)?;
 
             // Edit description
             let new_description: String = Input::with_theme(&ColorfulTheme::default())
@@ -421,19 +422,18 @@ pub fn prompt_description() -> Result<String> {
 
 /// Prompt for hours with validation
 pub fn prompt_hours() -> Result<f64> {
-    let hours: f64 = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("Enter hours (e.g., 2.5)")
-        .validate_with(|input: &f64| -> std::result::Result<(), &str> {
-            if *input <= 0.0 {
-                Err("Hours must be greater than 0")
-            } else if *input > 24.0 {
-                Err("Hours cannot exceed 24")
-            } else {
-                Ok(())
+    let hours_str: String = Input::with_theme(&ColorfulTheme::default())
+        .with_prompt("Enter hours (e.g., 1.5 or 1:30)")
+        .validate_with(|input: &String| -> std::result::Result<(), String> {
+            match crate::time_parser::parse_hours(input) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
             }
         })
         .interact_text()
         .map_err(|_| HarjiraError::UserCancelled)?;
+
+    let hours = crate::time_parser::parse_hours(&hours_str)?;
 
     Ok(hours)
 }

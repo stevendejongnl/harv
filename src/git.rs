@@ -23,10 +23,7 @@ pub fn discover_repositories(configured_repos: &[String]) -> Result<Vec<String>>
         if Repository::open(&cwd).is_ok() {
             Ok(vec![cwd_str])
         } else {
-            Err(HarjiraError::Config(
-                "Current directory is not a git repository and no repositories configured"
-                    .to_string(),
-            ))
+            Err(HarjiraError::ShowHelp)
         }
     } else {
         // Validate configured repositories
