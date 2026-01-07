@@ -1,5 +1,8 @@
 use crate::error::{HarjiraError, Result};
-use crate::models::{EntryType, HarvestProject, HarvestTask, ProposedTimeEntry, Ticket, TimeEntry};
+use crate::models::{
+    ContinueMode, EntryType, HarvestProject, HarvestTask, ProposedTimeEntry, Ticket, TimeEntry,
+};
+use chrono::Local;
 use console::style;
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Editor, FuzzySelect, Input, MultiSelect, Select};
@@ -556,4 +559,53 @@ pub fn prompt_entry_selection(entries: &[TimeEntry]) -> Result<&TimeEntry> {
         .map_err(|_| HarjiraError::UserCancelled)?;
 
     Ok(&entries[selection])
+}
+
+/// Prompt user to choose between restarting existing entry or creating new timer
+pub fn prompt_continue_mode(entry: &TimeEntry) -> Result<ContinueMode> {
+    let date_str = &entry.spent_date;
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let is_today = date_str == &today;
+
+    println!();
+    println!("{}", style("How would you like to continue?").cyan().bold());
+    println!("{}", style("=".repeat(60)).cyan());
+
+    let options = vec![
+        format!(
+            "Restart existing entry (keeps date: {}, continue timimg)",
+            date_str
+        ),
+        "Create new timer for today".to_string(),
+    ];
+
+    // Add context message if entry is from a past date
+    if !is_today {
+        println!(
+            "{}",
+            style(format!("\n⚠  Note: Entry is from {} (not today)", date_str)).yellow()
+        );
+        println!(
+            "  • Restart: Timer will run on {}",
+            style(date_str).yellow().bold()
+        );
+        println!(
+            "  • New timer: Creates separate entry for {}",
+            style(&today).green().bold()
+        );
+        println!();
+    }
+
+    let selection = Select::with_theme(&ColorfulTheme::default())
+        .with_prompt("Select action")
+        .items(&options)
+        .default(0)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    match selection {
+        0 => Ok(ContinueMode::Restart),
+        1 => Ok(ContinueMode::NewEntry),
+        _ => unreachable!(),
+    }
 }

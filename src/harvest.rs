@@ -261,6 +261,53 @@ impl HarvestClient {
         Ok(entry)
     }
 
+    /// Restart an existing stopped time entry
+    /// This preserves the entry's spent_date but resets hours to 0
+    /// and sets the timer to running.
+    pub fn restart_time_entry(&self, entry_id: u64, ctx: &Context) -> Result<TimeEntry> {
+        if ctx.dry_run {
+            info!("[DRY RUN] Would restart time entry {}", entry_id);
+            return Ok(TimeEntry {
+                id: entry_id,
+                spent_date: Local::now().format("%Y-%m-%d").to_string(),
+                hours: Some(0.0),
+                notes: None,
+                is_running: true,
+                project: None,
+                task: None,
+                started_time: None,
+            });
+        }
+
+        let url = format!("{}/time_entries/{}/restart", self.base_url, entry_id);
+        debug!("PATCH {}", url);
+
+        let response = self.client.patch(&url).send().map_err(|e| {
+            HarjiraError::Harvest(format!("Failed to restart time entry: {}", e))
+        })?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(HarjiraError::Harvest(format!(
+                "Failed to restart time entry ({}): {}",
+                status, error_text
+            )));
+        }
+
+        let entry: TimeEntry = response.json().map_err(|e| {
+            HarjiraError::Harvest(format!("Failed to parse restarted time entry: {}", e))
+        })?;
+
+        info!(
+            "Restarted time entry {} on date {}",
+            entry_id, entry.spent_date
+        );
+        Ok(entry)
+    }
+
     /// Start a new running timer based on an existing time entry
     pub fn start_timer_from_entry(&self, entry: &TimeEntry, ctx: &Context) -> Result<TimeEntry> {
         // Validate entry has required fields

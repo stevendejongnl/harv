@@ -195,6 +195,15 @@ impl EntryType {
     }
 }
 
+/// Mode for continuing work on a time entry
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContinueMode {
+    /// Restart existing entry (preserves date, resets hours to 0)
+    Restart,
+    /// Create new running timer for today
+    NewEntry,
+}
+
 // Implement HasName trait for usage tracking
 impl crate::usage::HasName for HarvestProject {
     fn name(&self) -> &str {

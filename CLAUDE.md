@@ -99,6 +99,42 @@ continue_days = 1          # Default lookback period for continue command (optio
 
 Initialize with: `harv config init`
 
+## Shell Completions
+
+The tool supports shell autocompletion for commands, subcommands, and flags. Completions can be installed automatically or generated manually for bash, zsh, and fish.
+
+### Installation
+
+**Automatic (Recommended)**:
+```bash
+# Auto-detects your shell and installs to the standard location
+harv completions install
+```
+
+This command:
+- Detects your shell from the `$SHELL` environment variable
+- Creates completion files in standard locations:
+  - **Zsh**: `~/.zfunc/_harv` (requires adding `fpath=(~/.zfunc $fpath)` to `~/.zshrc`)
+  - **Bash**: `~/.local/share/bash-completion/completions/harv`
+  - **Fish**: `~/.config/fish/completions/harv.fish`
+- Provides instructions for enabling completions
+
+**Manual Generation**:
+```bash
+# Generate completion script for a specific shell
+harv completions generate bash > /path/to/completions/harv
+harv completions generate zsh > ~/.zfunc/_harv
+harv completions generate fish > ~/.config/fish/completions/harv.fish
+```
+
+### Usage
+
+Once installed and sourced, you can use TAB to autocomplete:
+- **Commands**: `harv <TAB>` → shows `sync`, `status`, `stop`, `add`, `continue`, `generate`, `config`, `completions`
+- **Flags**: `harv sync --<TAB>` → shows `--auto-start`, `--auto-stop`, `--repo`, `--dry-run`, etc.
+- **Subcommands**: `harv config <TAB>` → shows `init`, `show`, `validate`
+- **Shell types**: `harv completions generate <TAB>` → shows `bash`, `zsh`, `fish`, etc.
+
 ## Systemd Integration
 
 The tool is designed to run unattended via systemd user timers:
@@ -323,8 +359,14 @@ The `harv continue` command allows resuming work on previously tracked tasks by 
 ### Command Usage
 
 ```bash
-# Interactive mode (shows today's stopped entries)
+# Interactive mode (prompts user to choose restart vs new entry)
 harv continue
+
+# Force restart existing entry (preserves original date)
+harv continue --restart
+
+# Force create new timer for today
+harv continue --new-entry
 
 # Look back more days
 harv continue --days 7        # Last 7 days
@@ -332,15 +374,56 @@ harv continue --days 7        # Last 7 days
 # Auto-start without prompts
 harv continue --auto-start    # Skips timer conflict confirmation
 
+# Combined flags
+harv continue --restart --days 7 --auto-start
+
 # Dry run
 harv continue --dry-run       # Preview without creating timer
+harv continue --restart --dry-run  # Preview restart
 ```
+
+### Continue Modes
+
+The `harv continue` command supports two modes:
+
+1. **Restart** - Restarts the existing stopped entry
+   - Preserves original `spent_date` (if entry from Jan 5, stays on Jan 5)
+   - Resets hours to 0, starts accumulating from restart time
+   - Modifies same entry (no new entry created)
+   - Uses Harvest API: `PATCH /v2/time_entries/{id}/restart`
+   - Use case: Continue work on same logical task over multiple days
+
+2. **New Entry** - Creates new running timer for today
+   - Always uses today's date regardless of original entry date
+   - Creates separate entry (original entry preserved)
+   - Use case: Track work separately by day
+
+### Mode Selection
+
+Three ways to control mode (priority: flags > config > prompt):
+
+1. **CLI Flags** (highest priority):
+   - `--restart` - Force restart existing entry
+   - `--new-entry` - Force create new timer
+
+2. **Config Setting** (fallback if no flags):
+   ```toml
+   [settings]
+   continue_mode = "restart"  # or "new" or "ask"
+   ```
+
+3. **Interactive Prompt** (default if no flag/config):
+   - User is prompted to choose each time
+   - Shows context-aware warning if entry is from past date
+   - Displays date implications for each option
 
 ### Key Design Decisions
 
-**Date Handling**: New running timer always uses today's date (not the original entry's date). This ensures the timer is trackable in today's context even when continuing work from previous days.
+**Date Behavior with Restart**: When restarting an entry from a past date, the timer runs on the **original date**, not today. Example: Restart entry from Jan 5 → timer accumulates hours on Jan 5. Harvest reports will show time on original date.
 
-**Entry Preservation**: Original stopped entry is never modified or deleted. The continue command creates a NEW running timer with the same project/task/notes. This maintains a complete audit trail.
+**Date Behavior with New Entry**: New running timer always uses today's date regardless of original entry date. This ensures the timer is trackable in today's context even when continuing work from previous days.
+
+**Entry Preservation (New Entry Mode)**: Original stopped entry is never modified or deleted. The continue command creates a NEW running timer with the same project/task/notes. This maintains a complete audit trail.
 
 **Timer Conflict Logic**: Reuses the same conflict resolution as `run_sync`:
 - Timer already running for same task (matching notes) → inform and skip
@@ -355,16 +438,21 @@ Add to `~/.config/harv/config.toml`:
 ```toml
 [settings]
 continue_days = 1  # Default lookback period (optional, defaults to 1 if not set)
+continue_mode = "ask"  # How to continue: "restart", "new", or "ask" (default)
 ```
+
+**Environment variable override**: `CONTINUE_MODE` - Set to "restart", "new", or "ask"
 
 ### API Methods
 
-**New Harvest API methods**:
+**Harvest API methods**:
 - `get_time_entries_range(from_date, to_date)` (harvest.rs:107) - Fetches entries for date range via GET /v2/time_entries
-- `start_timer_from_entry(entry)` (harvest.rs:265) - Creates running timer from existing entry, validates project/task exist
+- `restart_time_entry(entry_id, ctx)` (harvest.rs:267) - PATCH to `/v2/time_entries/{id}/restart`, preserves date and resets hours to 0
+- `start_timer_from_entry(entry)` (harvest.rs:312) - Creates new running timer from existing entry for today, validates project/task exist
 
-**New Prompt function**:
+**Prompt functions**:
 - `prompt_entry_selection(entries)` (prompt.rs:506) - Fuzzy searchable list of time entries
+- `prompt_continue_mode(entry)` (prompt.rs:565) - Interactive selection between restart and new entry modes
 
 ### Edge Cases
 
@@ -374,18 +462,29 @@ continue_days = 1  # Default lookback period (optional, defaults to 1 if not set
 | Entry missing project/task | Filtered out during selection (not shown to user) |
 | Running timer for same task | Info message: "Timer already running for this task", early return |
 | Running timer for different task | Prompt to stop (or auto-stop with --auto-start flag) |
-| Original entry from past date | Creates new timer with today's date, original entry stays on its date |
+| Restart entry from past date | Timer runs on original date (preserves spent_date) |
+| New entry from past date | Creates timer for today, original entry preserved |
+| Conflicting flags (--restart --new-entry) | Clap prevents this with `conflicts_with` attribute |
+| Invalid continue_mode in config | Validation fails on config load with clear error message |
+| Restart already-running entry | Harvest API returns error "Entry already running" |
 
 ### Testing Scenarios
 
 Manual test cases:
-1. Continue entry from today → Creates timer with same project/task/notes
-2. Continue entry from 2 days ago with --days 3 → Creates timer with today's date
-3. Continue when timer already running for same task → Informs and skips
-4. Continue when timer running for different task → Prompts to stop
-5. Continue with --auto-start → Automatically stops conflicting timer
-6. Continue with no stopped entries → Shows info message
-7. Continue with --dry-run → Previews without creating timer
+1. `harv continue` (interactive) → Shows prompt with restart/new options
+2. `harv continue --restart` → Directly restarts without prompt
+3. `harv continue --new-entry` → Directly creates new timer without prompt
+4. Restart entry from yesterday → Timer runs on yesterday's date (verify in Harvest)
+5. New entry from yesterday → Timer created for today
+6. Continue when timer already running for same task → Informs and skips
+7. Continue when timer running for different task → Prompts to stop
+8. Continue with --auto-start → Automatically stops conflicting timer
+9. Continue with no stopped entries → Shows info message
+10. `harv continue --restart --dry-run` → Previews restart without executing
+11. `harv continue --new-entry --dry-run` → Previews new timer without executing
+12. Config `continue_mode = "restart"` → Auto-restarts without prompt
+13. Config `continue_mode = "new"` → Auto-creates new without prompt
+14. Flag overrides config → CLI flag takes precedence over config setting
 
 ## Environment Variables
 
@@ -399,6 +498,7 @@ Override config for testing:
 - `AI_API_KEY`
 - `AI_MODEL`
 - `AI_TARGET_HOURS`
+- `CONTINUE_MODE` - Set to "restart", "new", or "ask"
 - `RUST_LOG` - Set to `debug` for verbose logging
 
 ## Known Limitations

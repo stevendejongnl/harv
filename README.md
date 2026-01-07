@@ -200,6 +200,48 @@ Total Time Today: 4.00 hours
 harv stop
 ```
 
+### Continue Work on Previous Entry
+
+Resume work from a previous time entry. You can choose to restart the existing entry (preserving its date) or create a new timer for today:
+
+```bash
+# Interactive mode (prompts to choose restart vs new entry)
+harv continue
+
+# Force restart existing entry (preserves original date)
+harv continue --restart
+
+# Force create new timer for today
+harv continue --new-entry
+
+# Look back multiple days
+harv continue --days 7
+
+# Combined flags
+harv continue --restart --days 7 --auto-start
+```
+
+**Mode Options:**
+- `--restart`: Restart the existing stopped entry
+  - Preserves the entry's original date (e.g., if from Jan 5, stays on Jan 5)
+  - Resets hours to 0 and starts accumulating from now
+  - Modifies the same entry (no duplicate created)
+
+- `--new-entry`: Create a new timer for today (default behavior)
+  - Always uses today's date
+  - Creates a separate entry (original preserved)
+
+- No flag: Interactive prompt lets you choose
+
+**Configuration:**
+Set a default behavior in `~/.config/harv/config.toml`:
+```toml
+[settings]
+continue_mode = "ask"  # "restart", "new", or "ask" (default)
+```
+
+**Note:** When restarting an entry from a past date, the timer will continue accumulating hours on that original date, not today.
+
 ### Configuration Management
 
 ```bash

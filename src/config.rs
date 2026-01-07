@@ -98,6 +98,8 @@ pub struct Settings {
     pub auto_select_single: bool,
     #[serde(default)]
     pub continue_days: Option<u8>,
+    #[serde(default)]
+    pub continue_mode: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -111,6 +113,7 @@ impl Default for Settings {
             auto_stop: false,
             auto_select_single: true,
             continue_days: None,
+            continue_mode: None,
         }
     }
 }
@@ -243,6 +246,12 @@ auto_select_single = true
 # Number of days to look back when continuing work (default: 1 for today only)
 # continue_days = 1
 
+# How to continue work on existing entries
+# - "restart": Always restart existing entry (preserves date, resets hours)
+# - "new": Always create new timer for today
+# - "ask": Prompt user each time (default)
+# continue_mode = "ask"
+
 [ticket_filter]
 # Ignore specific ticket prefixes that match the pattern but aren't Jira tickets
 # Common examples: CWE (Common Weakness Enumeration), CVE (Common Vulnerabilities)
@@ -312,6 +321,9 @@ target_hours = 8.0
                 self.ai.target_hours = hours;
             }
         }
+        if let Ok(mode) = env::var("CONTINUE_MODE") {
+            self.settings.continue_mode = Some(mode);
+        }
     }
 
     /// Validate configuration
@@ -375,6 +387,19 @@ target_hours = 8.0
             }
         }
 
+        // Validate continue_mode if present
+        if let Some(ref mode) = self.settings.continue_mode {
+            match mode.as_str() {
+                "restart" | "new" | "ask" => {}
+                _ => {
+                    return Err(HarjiraError::Config(format!(
+                        "Invalid continue_mode: '{}'. Must be 'restart', 'new', or 'ask'",
+                        mode
+                    )))
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -418,6 +443,9 @@ target_hours = 8.0
             "  Auto-select single ticket: {}",
             self.settings.auto_select_single
         );
+        if let Some(ref mode) = self.settings.continue_mode {
+            println!("  Continue mode: {}", mode);
+        }
 
         println!("\nAI Configuration:");
         println!("  Enabled: {}", self.ai.enabled);

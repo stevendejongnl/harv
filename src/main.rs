@@ -59,6 +59,14 @@ enum Commands {
         /// Automatically start timer without prompting
         #[arg(long)]
         auto_start: bool,
+
+        /// Create new timer instead of restarting existing entry
+        #[arg(long, conflicts_with = "restart")]
+        new_entry: bool,
+
+        /// Restart existing entry instead of creating new timer
+        #[arg(long, conflicts_with = "new_entry")]
+        restart: bool,
     },
 
     /// Generate time entries from a work summary using AI
@@ -86,6 +94,12 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigAction,
     },
+
+    /// Generate shell completions
+    Completions {
+        #[command(subcommand)]
+        action: CompletionsAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -98,6 +112,19 @@ enum ConfigAction {
 
     /// Validate configuration file
     Validate,
+}
+
+#[derive(Subcommand)]
+enum CompletionsAction {
+    /// Auto-detect shell and install completions
+    Install,
+
+    /// Generate completion script for a specific shell
+    Generate {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 fn main() {
@@ -138,10 +165,15 @@ fn main() {
         Some(Commands::Status) => run_status(ctx),
         Some(Commands::Stop) => run_stop(ctx),
         Some(Commands::Add) => run_add(ctx),
-        Some(Commands::Continue { days, auto_start }) => {
+        Some(Commands::Continue {
+            days,
+            auto_start,
+            new_entry,
+            restart,
+        }) => {
             let mut continue_ctx = ctx.clone();
             continue_ctx.auto_start = auto_start;
-            run_continue(continue_ctx, days)
+            run_continue(continue_ctx, days, new_entry, restart)
         }
         Some(Commands::Generate {
             summary,
@@ -153,6 +185,10 @@ fn main() {
             ConfigAction::Init => run_config_init(),
             ConfigAction::Show => run_config_show(),
             ConfigAction::Validate => run_config_validate(),
+        },
+        Some(Commands::Completions { action }) => match action {
+            CompletionsAction::Install => run_completions_install(),
+            CompletionsAction::Generate { shell } => run_completions_generate(shell),
         },
         None => {
             // Default to sync command
@@ -371,6 +407,8 @@ fn run_config_init() -> Result<()> {
     println!("\nPlease edit the file and add your API credentials:");
     println!("  - Harvest access token: https://id.getharvest.com/developers");
     println!("  - Jira personal access token: https://id.atlassian.com/manage-profile/security/api-tokens");
+    println!("\nTip: Enable shell completions with:");
+    println!("  harv completions install");
     Ok(())
 }
 
@@ -730,7 +768,12 @@ fn run_add(ctx: models::Context) -> Result<()> {
     Ok(())
 }
 
-fn run_continue(ctx: models::Context, days: Option<u8>) -> Result<()> {
+fn run_continue(
+    ctx: models::Context,
+    days: Option<u8>,
+    new_entry: bool,
+    restart: bool,
+) -> Result<()> {
     info!("Starting continue operation...");
 
     // Load configuration
@@ -810,6 +853,28 @@ fn run_continue(ctx: models::Context, days: Option<u8>) -> Result<()> {
 
     info!("Selected entry: {} - {}", project_name, notes);
 
+    // Determine how to continue (restart vs new timer)
+    let continue_mode = if restart {
+        models::ContinueMode::Restart
+    } else if new_entry {
+        models::ContinueMode::NewEntry
+    } else if let Some(ref mode_str) = config.settings.continue_mode {
+        // Use config setting
+        match mode_str.as_str() {
+            "restart" => models::ContinueMode::Restart,
+            "new" => models::ContinueMode::NewEntry,
+            _ => {
+                // "ask" or invalid value -> prompt user
+                prompt::prompt_continue_mode(selected_entry)?
+            }
+        }
+    } else {
+        // No config, no flags -> prompt user
+        prompt::prompt_continue_mode(selected_entry)?
+    };
+
+    info!("Continue mode: {:?}", continue_mode);
+
     // Check for running timer conflicts
     let running_timer = harvest_client.get_running_timer()?;
 
@@ -849,15 +914,154 @@ fn run_continue(ctx: models::Context, days: Option<u8>) -> Result<()> {
         }
     }
 
-    // Start new timer from selected entry
-    harvest_client.start_timer_from_entry(selected_entry, &ctx)?;
+    // Execute based on continue mode
+    match continue_mode {
+        models::ContinueMode::Restart => {
+            // Restart existing entry
+            let restarted = harvest_client.restart_time_entry(selected_entry.id, &ctx)?;
 
-    if !ctx.quiet {
-        prompt::display_success(&format!(
-            "Started timer: {} > {} - {}",
-            project_name, task_name, notes
-        ));
+            if !ctx.quiet {
+                prompt::display_success(&format!(
+                    "Restarted timer on {}: {} > {} - {}",
+                    restarted.spent_date, project_name, task_name, notes
+                ));
+            }
+        }
+        models::ContinueMode::NewEntry => {
+            // Create new timer (existing behavior)
+            harvest_client.start_timer_from_entry(selected_entry, &ctx)?;
+
+            if !ctx.quiet {
+                prompt::display_success(&format!(
+                    "Started new timer: {} > {} - {}",
+                    project_name, task_name, notes
+                ));
+            }
+        }
     }
+
+    Ok(())
+}
+
+fn run_completions_generate(shell: clap_complete::Shell) -> Result<()> {
+    use clap_complete::generate;
+    use std::io;
+
+    let mut cmd = Cli::command();
+    let bin_name = cmd.get_name().to_string();
+    generate(shell, &mut cmd, bin_name, &mut io::stdout());
+
+    Ok(())
+}
+
+fn run_completions_install() -> Result<()> {
+    use clap_complete::{generate, Shell};
+    use std::env;
+    use std::fs;
+    use std::path::PathBuf;
+
+    // Detect shell from $SHELL environment variable
+    let shell_path = env::var("SHELL").map_err(|_| {
+        HarjiraError::Config(
+            "Could not detect shell. Please set the SHELL environment variable.".to_string(),
+        )
+    })?;
+
+    let shell = if shell_path.contains("zsh") {
+        Shell::Zsh
+    } else if shell_path.contains("bash") {
+        Shell::Bash
+    } else if shell_path.contains("fish") {
+        Shell::Fish
+    } else {
+        return Err(HarjiraError::Config(format!(
+            "Unsupported shell: {}. Supported shells: bash, zsh, fish",
+            shell_path
+        )));
+    };
+
+    println!("✓ Detected shell: {:?}", shell);
+
+    // Determine installation path
+    let home = dirs::home_dir().ok_or_else(|| {
+        HarjiraError::Config("Could not determine home directory".to_string())
+    })?;
+
+    let (completion_dir, completion_file, config_file, source_line): (
+        PathBuf,
+        PathBuf,
+        PathBuf,
+        &str,
+    ) = match shell {
+        Shell::Zsh => {
+            let dir = home.join(".zfunc");
+            let file = dir.join("_harv");
+            let config = home.join(".zshrc");
+            let source = "fpath=(~/.zfunc $fpath)";
+            (dir, file, config, source)
+        }
+        Shell::Bash => {
+            let dir = home.join(".local/share/bash-completion/completions");
+            let file = dir.join("harv");
+            let config = home.join(".bashrc");
+            let source = "";
+            (dir, file, config, source)
+        }
+        Shell::Fish => {
+            let dir = home.join(".config/fish/completions");
+            let file = dir.join("harv.fish");
+            let config = PathBuf::new();
+            let source = "";
+            (dir, file, config, source)
+        }
+        _ => unreachable!(),
+    };
+
+    // Create directory if it doesn't exist
+    if !completion_dir.exists() {
+        fs::create_dir_all(&completion_dir).map_err(|e| {
+            HarjiraError::Config(format!(
+                "Failed to create directory {}: {}",
+                completion_dir.display(),
+                e
+            ))
+        })?;
+    }
+
+    // Generate completion script
+    let mut cmd = Cli::command();
+    let bin_name = cmd.get_name().to_string();
+    let mut buffer = Vec::new();
+    generate(shell, &mut cmd, bin_name, &mut buffer);
+
+    // Write to file
+    fs::write(&completion_file, &buffer).map_err(|e| {
+        HarjiraError::Config(format!(
+            "Failed to write completion file {}: {}",
+            completion_file.display(),
+            e
+        ))
+    })?;
+
+    println!("✓ Installed completions to {}", completion_file.display());
+
+    // Handle shell config updates
+    if !source_line.is_empty() && config_file.exists() {
+        let config_content = fs::read_to_string(&config_file).unwrap_or_default();
+
+        if !config_content.contains(source_line) {
+            // Prompt user to add source line
+            println!("\nTo enable completions, add this line to {}:", config_file.display());
+            println!("  {}", source_line);
+            println!("\nOr run:");
+            println!("  echo '{}' >> {}", source_line, config_file.display());
+        } else {
+            println!("✓ Shell config already sources completion directory");
+        }
+    }
+
+    println!("\n→ Restart your shell or run: source {}", config_file.display());
+    println!("→ Then test with: harv <TAB>");
 
     Ok(())
 }
