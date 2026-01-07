@@ -218,7 +218,7 @@ fn usage_file_path() -> Result<PathBuf> {
     let config_dir = dirs::config_dir().ok_or_else(|| {
         HarjiraError::Config("Could not determine config directory".to_string())
     })?;
-    Ok(config_dir.join("harjira").join("usage.json"))
+    Ok(config_dir.join("harv").join("usage.json"))
 }
 
 #[cfg(test)]

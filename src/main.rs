@@ -1,11 +1,11 @@
 use clap::{CommandFactory, Parser, Subcommand};
-use harjira::*;
+use harv::*;
 use log::{error, info};
 use std::process;
 
 #[derive(Parser)]
-#[command(name = "harjira")]
-#[command(about = "Automatic Harvest time tracking based on Jira tickets in git commits", long_about = None)]
+#[command(name = "harv")]
+#[command(about = "Smart Harvest time tracking with git commit integration and AI-powered time entry generation", long_about = None)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]

@@ -1,6 +1,6 @@
 # Setup Development Environment
 
-Set up a complete development environment for harjira from scratch.
+Set up a complete development environment for harv from scratch.
 
 ## Steps
 
@@ -20,8 +20,8 @@ Set up a complete development environment for harjira from scratch.
    - Explain what credentials are needed:
      - Harvest: https://id.getharvest.com/developers
      - Jira: https://id.atlassian.com/manage-profile/security/api-tokens
-   - Show config file location: `~/.config/harjira/config.toml`
-   - Remind to set file permissions: `chmod 600 ~/.config/harjira/config.toml`
+   - Show config file location: `~/.config/harv/config.toml`
+   - Remind to set file permissions: `chmod 600 ~/.config/harv/config.toml`
 
 4. Test the setup:
    - `cargo run -- config validate`

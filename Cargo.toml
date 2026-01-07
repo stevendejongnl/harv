@@ -1,9 +1,9 @@
 [package]
-name = "harjira"
+name = "harv"
 version = "0.1.0"
 edition = "2021"
 authors = ["Steven de Jong"]
-description = "Automatic Harvest time tracking based on Jira tickets in git commits"
+description = "Smart Harvest time tracking with git commit integration and AI-powered time entry generation"
 
 [dependencies]
 # CLI & argument parsing

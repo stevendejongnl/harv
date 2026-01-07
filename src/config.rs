@@ -118,11 +118,14 @@ impl Default for Settings {
 impl Config {
     /// Load configuration from file or create template
     pub fn load() -> Result<Self> {
+        // Attempt to migrate from old harjira config if needed
+        Self::migrate_from_harjira()?;
+
         let config_path = Self::config_path()?;
 
         if !config_path.exists() {
             return Err(HarjiraError::Config(format!(
-                "Configuration file not found at {}. Run 'harjira config init' to create one.",
+                "Configuration file not found at {}. Run 'harv config init' to create one.",
                 config_path.display()
             )));
         }
@@ -145,8 +148,40 @@ impl Config {
             HarjiraError::Config("HOME environment variable not set".to_string())
         })?;
 
-        let config_dir = PathBuf::from(home).join(".config").join("harjira");
+        let config_dir = PathBuf::from(home).join(".config").join("harv");
         Ok(config_dir.join("config.toml"))
+    }
+
+    /// Migrate from old harjira config directory to new harv directory
+    fn migrate_from_harjira() -> Result<()> {
+        let home = env::var("HOME").map_err(|_| {
+            HarjiraError::Config("HOME environment variable not set".to_string())
+        })?;
+
+        let old_config_dir = PathBuf::from(&home).join(".config").join("harjira");
+        let new_config_dir = PathBuf::from(&home).join(".config").join("harv");
+
+        // Only migrate if old directory exists and new one doesn't
+        if old_config_dir.exists() && !new_config_dir.exists() {
+            // Copy entire directory
+            if let Err(e) = copy_dir_all(&old_config_dir, &new_config_dir) {
+                // Non-fatal: warn and continue
+                eprintln!(
+                    "Warning: Failed to migrate config from {} to {}: {}",
+                    old_config_dir.display(),
+                    new_config_dir.display(),
+                    e
+                );
+            } else {
+                println!(
+                    "Migrated config from {} to {}",
+                    old_config_dir.display(),
+                    new_config_dir.display()
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// Create a template configuration file
@@ -165,7 +200,7 @@ impl Config {
             fs::create_dir_all(parent)?;
         }
 
-        let template = r#"# Harjira Configuration File
+        let template = r#"# Harv Configuration File
 # See: https://help.getharvest.com/api-v2/ for Harvest API docs
 # See: https://developer.atlassian.com/cloud/jira/platform/rest/v3/ for Jira API docs
 
@@ -173,7 +208,7 @@ impl Config {
 # Get your access token from: https://id.getharvest.com/developers
 access_token = "your_harvest_access_token_here"
 account_id = "your_account_id_here"
-user_agent = "harjira (your.email@example.com)"
+user_agent = "harv (your.email@example.com)"
 
 # Optional: Default project and task IDs for time entries
 # Get these from: https://api.harvestapp.com/v2/projects
@@ -402,4 +437,22 @@ target_hours = 8.0
             println!("  Target hours: {}", self.ai.target_hours);
         }
     }
+}
+
+/// Recursively copy a directory and its contents
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if ty.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }

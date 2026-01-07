@@ -1,8 +1,8 @@
-# harjira
+# harv
 
-**Automatic Harvest time tracking based on Jira tickets in git commits**
+**Smart Harvest time tracking with git commit integration and AI-powered time entry generation**
 
-`harjira` is a Rust CLI tool that automatically creates Harvest time entries by detecting Jira tickets in your git commits. It runs on system boot and hourly via systemd, ensuring your time tracking stays in sync with your actual work.
+`harv` is a Rust CLI tool that makes Harvest time tracking effortless. It automatically creates time entries by detecting Jira tickets in your git commits, supports AI-powered time entry generation from natural language summaries, and can resume work from previous entries. It runs on system boot and hourly via systemd, ensuring your time tracking stays in sync with your actual work.
 
 ## Features
 
@@ -39,7 +39,56 @@ cargo build --release
 cargo install --path .
 ```
 
-The binary will be installed to `~/.cargo/bin/harjira`.
+The binary will be installed to `~/.cargo/bin/harv`.
+
+## Migrating from harjira
+
+If you were previously using the `harjira` tool, migration is straightforward:
+
+### Config Migration (Automatic)
+
+Your configuration will be **automatically migrated** on the first run of any `harv` command. The tool will copy `~/.config/harjira/` to `~/.config/harv/` if the old directory exists and the new one doesn't.
+
+```bash
+# Simply run any harv command to trigger migration
+harv config show
+# Output: "Migrated config from ~/.config/harjira/ to ~/.config/harv/"
+```
+
+### Systemd Timer Migration (Run Script)
+
+If you have the systemd timer installed, use the provided migration script:
+
+```bash
+# From the harjira project directory
+./migrate-harjira-to-harv.sh
+```
+
+This script will:
+1. Stop and disable the old `harjira` timer
+2. Remove old systemd files
+3. Install and start the new `harv` timer
+
+Alternatively, migrate manually:
+
+```bash
+# Stop old timer
+systemctl --user stop harjira.timer
+systemctl --user disable harjira.timer
+rm -f ~/.config/systemd/user/harjira.{service,timer}
+
+# Install new timer
+make systemd-install
+```
+
+### Binary Reinstallation
+
+After updating the code, reinstall the binary:
+
+```bash
+cargo install --path .
+# The new binary will be at ~/.cargo/bin/harv
+```
 
 ## Configuration
 
@@ -58,20 +107,20 @@ The binary will be installed to `~/.cargo/bin/harjira`.
 ### 2. Initialize Configuration
 
 ```bash
-harjira config init
+harv config init
 ```
 
-This creates a configuration file at `~/.config/harjira/config.toml` with secure permissions (600).
+This creates a configuration file at `~/.config/harv/config.toml` with secure permissions (600).
 
 ### 3. Edit Configuration
 
-Edit `~/.config/harjira/config.toml` and add your credentials:
+Edit `~/.config/harv/config.toml` and add your credentials:
 
 ```toml
 [harvest]
 access_token = "your_harvest_access_token_here"
 account_id = "1234567"
-user_agent = "harjira (your.email@example.com)"
+user_agent = "harv (your.email@example.com)"
 
 # Optional: Default project and task IDs
 # Get these from: https://api.harvestapp.com/v2/projects
@@ -99,7 +148,7 @@ auto_select_single = true
 ### 4. Validate Configuration
 
 ```bash
-harjira config validate
+harv config validate
 ```
 
 ## Usage
@@ -109,13 +158,13 @@ harjira config validate
 Check commits and sync to Harvest:
 
 ```bash
-harjira sync
+harv sync
 ```
 
 Or simply:
 
 ```bash
-harjira
+harv
 ```
 
 ### Check Status
@@ -123,7 +172,7 @@ harjira
 View current timer and today's entries:
 
 ```bash
-harjira status
+harv status
 ```
 
 Example output:
@@ -148,23 +197,23 @@ Total Time Today: 4.00 hours
 ### Stop Current Timer
 
 ```bash
-harjira stop
+harv stop
 ```
 
 ### Configuration Management
 
 ```bash
 # Show current configuration (tokens masked)
-harjira config show
+harv config show
 
 # Validate configuration
-harjira config validate
+harv config validate
 ```
 
 ### Command Options
 
 ```bash
-harjira sync [OPTIONS]
+harv sync [OPTIONS]
 
 Options:
   --auto-start           Automatically start timer without prompting
@@ -183,35 +232,35 @@ For automatic hourly checks and boot-time sync:
 
 ```bash
 # Copy systemd files
-cp systemd/harjira.service ~/.config/systemd/user/
-cp systemd/harjira.timer ~/.config/systemd/user/
+cp systemd/harv.service ~/.config/systemd/user/
+cp systemd/harv.timer ~/.config/systemd/user/
 
 # Reload systemd
 systemctl --user daemon-reload
 
 # Enable and start the timer
-systemctl --user enable harjira.timer
-systemctl --user start harjira.timer
+systemctl --user enable harv.timer
+systemctl --user start harv.timer
 ```
 
 ### Verify Timer
 
 ```bash
 # Check timer status
-systemctl --user status harjira.timer
+systemctl --user status harv.timer
 
 # List all timers
 systemctl --user list-timers
 
 # View logs
-journalctl --user -u harjira.service -f
+journalctl --user -u harv.service -f
 ```
 
 ### Disable Timer
 
 ```bash
-systemctl --user stop harjira.timer
-systemctl --user disable harjira.timer
+systemctl --user stop harv.timer
+systemctl --user disable harv.timer
 ```
 
 ## How It Works
@@ -252,7 +301,7 @@ git commit -m "Update docs for PROJECT-789"
 ### Scenario 1: Single Ticket, No Running Timer
 
 ```bash
-$ harjira sync
+$ harv sync
 Found 3 commits from today
 Detected Jira ticket: PROJ-123
 Fetching Jira details... PROJ-123 - Implement OAuth2 authentication
@@ -263,7 +312,7 @@ No timer currently running
 ### Scenario 2: Multiple Tickets
 
 ```bash
-$ harjira sync
+$ harv sync
 Found 5 commits from today
 
 Multiple Jira tickets found in today's commits:
@@ -279,7 +328,7 @@ Select a ticket to track:
 ### Scenario 3: Timer Conflict
 
 ```bash
-$ harjira sync
+$ harv sync
 Found 2 commits from today
 Detected Jira ticket: PROJ-124
 
@@ -298,7 +347,7 @@ Stop current timer and start new one? (y/N): y
 ### Scenario 4: Dry Run
 
 ```bash
-$ harjira sync --dry-run
+$ harv sync --dry-run
 Found 3 commits from today
 Detected Jira ticket: PROJ-123
 [DRY RUN] Would create time entry:
@@ -323,10 +372,10 @@ Override configuration with environment variables (useful for CI/testing):
 
 ```bash
 # Validate your configuration
-harjira config validate
+harv config validate
 
 # View current configuration
-harjira config show
+harv config show
 ```
 
 ### No tickets found
@@ -345,13 +394,13 @@ harjira config show
 
 ```bash
 # Check timer status
-systemctl --user status harjira.timer
+systemctl --user status harv.timer
 
 # View logs
-journalctl --user -u harjira.service -n 50
+journalctl --user -u harv.service -n 50
 
 # Restart timer
-systemctl --user restart harjira.timer
+systemctl --user restart harv.timer
 ```
 
 ## Development
@@ -365,7 +414,7 @@ cargo test
 ### Run with Logging
 
 ```bash
-RUST_LOG=debug harjira sync --dry-run
+RUST_LOG=debug harv sync --dry-run
 ```
 
 ### Build for Release
@@ -377,7 +426,7 @@ cargo build --release
 ## Project Structure
 
 ```
-harjira/
+harv/
 ├── src/
 │   ├── main.rs           # CLI entry point
 │   ├── lib.rs            # Library exports
@@ -390,8 +439,8 @@ harjira/
 │   ├── ticket_parser.rs  # Jira ticket extraction
 │   └── prompt.rs         # User interaction
 ├── systemd/
-│   ├── harjira.service   # Systemd service
-│   └── harjira.timer     # Systemd timer
+│   ├── harv.service   # Systemd service
+│   └── harv.timer     # Systemd timer
 └── tests/
     └── integration_tests.rs
 ```

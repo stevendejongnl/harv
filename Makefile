@@ -99,30 +99,30 @@ config-validate:
 ## systemd-install: Install systemd user timer
 systemd-install:
 	mkdir -p ~/.config/systemd/user
-	cp systemd/harjira.service ~/.config/systemd/user/
-	cp systemd/harjira.timer ~/.config/systemd/user/
+	cp systemd/harv.service ~/.config/systemd/user/
+	cp systemd/harv.timer ~/.config/systemd/user/
 	systemctl --user daemon-reload
-	systemctl --user enable harjira.timer
-	systemctl --user start harjira.timer
+	systemctl --user enable harv.timer
+	systemctl --user start harv.timer
 	@echo "Systemd timer installed and started"
-	@echo "Check status: systemctl --user status harjira.timer"
+	@echo "Check status: systemctl --user status harv.timer"
 
 ## systemd-uninstall: Uninstall systemd user timer
 systemd-uninstall:
-	systemctl --user stop harjira.timer || true
-	systemctl --user disable harjira.timer || true
-	rm -f ~/.config/systemd/user/harjira.service
-	rm -f ~/.config/systemd/user/harjira.timer
+	systemctl --user stop harv.timer || true
+	systemctl --user disable harv.timer || true
+	rm -f ~/.config/systemd/user/harv.service
+	rm -f ~/.config/systemd/user/harv.timer
 	systemctl --user daemon-reload
 	@echo "Systemd timer uninstalled"
 
 ## systemd-status: Show systemd timer status
 systemd-status:
-	systemctl --user status harjira.timer
+	systemctl --user status harv.timer
 
 ## systemd-logs: Show systemd service logs
 systemd-logs:
-	journalctl --user -u harjira.service -f
+	journalctl --user -u harv.service -f
 
 ## dry-run: Run sync command in dry-run mode
 dry-run:
@@ -147,6 +147,6 @@ release:
 	cargo build --release
 	@echo ""
 	@echo "Release binary built at:"
-	@echo "  $$(pwd)/target/release/harjira"
+	@echo "  $$(pwd)/target/release/harv"
 	@echo ""
 	@echo "Install with: make install"

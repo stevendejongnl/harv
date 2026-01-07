@@ -1,6 +1,6 @@
-# Harjira Skills
+# Harv Skills
 
-This directory contains skills for working with the harjira project. Skills are reusable workflows that can be invoked in Claude Code.
+This directory contains skills for working with the harv project. Skills are reusable workflows that can be invoked in Claude Code.
 
 ## Available Skills
 

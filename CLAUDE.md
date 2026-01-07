@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`harjira` is a Rust CLI tool that bridges git commits, Jira tickets, and Harvest time tracking. It scans git commits for Jira ticket references (e.g., `PROJECT-123`) and automatically creates corresponding Harvest time entries with links to Jira.
+`harv` is a Rust CLI tool for smart Harvest time tracking. It automatically creates Harvest time entries by scanning git commits for Jira ticket references (e.g., `PROJECT-123`), supports AI-powered time entry generation from natural language work summaries, and allows resuming work from previous time entries. The tool runs automatically via systemd timers or can be invoked manually for on-demand time tracking.
 
 ## Build & Test Commands
 
@@ -40,7 +40,7 @@ RUST_LOG=debug cargo run -- sync --dry-run
 
 The main sync operation follows this pipeline:
 
-1. **Configuration Loading** → `Config::load()` reads `~/.config/harjira/config.toml`
+1. **Configuration Loading** → `Config::load()` reads `~/.config/harv/config.toml`
 2. **Repository Discovery** → `git::discover_repositories()` finds git repos from config or current dir
 3. **Commit Collection** → `git::get_commits_from_repositories()` gets today's commits from ALL local branches
 4. **Ticket Extraction** → `ticket_parser::extract_tickets()` uses regex to find Jira tickets (case-insensitive)
@@ -56,7 +56,7 @@ The main sync operation follows this pipeline:
 - **ticket_parser.rs**: Regex `(?i)\b([a-z]+)-(\d+)\b` extracts and normalizes tickets to uppercase. Returns sorted, deduplicated Vec.
 - **jira.rs**: REST API client for `/rest/api/3/issue/{key}`. Handles 404/401/403 explicitly, falls back to placeholder tickets on errors.
 - **harvest.rs**: REST API client for `/v2/time_entries`. Creates timers with `external_reference` linking to Jira. Supports dry-run mode via `Context`.
-- **config.rs**: TOML config at `~/.config/harjira/config.toml`. Environment variable overrides (e.g., `HARVEST_ACCESS_TOKEN`). Validation ensures tokens aren't placeholder strings.
+- **config.rs**: TOML config at `~/.config/harv/config.toml`. Environment variable overrides (e.g., `HARVEST_ACCESS_TOKEN`). Validation ensures tokens aren't placeholder strings.
 - **prompt.rs**: Interactive UI using `dialoguer` for multi-ticket selection and timer conflict confirmation.
 
 ### Critical Design Decisions
@@ -74,7 +74,7 @@ The main sync operation follows this pipeline:
 
 ## Configuration
 
-Configuration lives at `~/.config/harjira/config.toml` with 600 permissions. Four sections:
+Configuration lives at `~/.config/harv/config.toml` with 600 permissions. Four sections:
 
 ```toml
 [harvest]
@@ -97,16 +97,16 @@ auto_select_single = true  # Auto-select if only one ticket found
 continue_days = 1          # Default lookback period for continue command (optional)
 ```
 
-Initialize with: `harjira config init`
+Initialize with: `harv config init`
 
 ## Systemd Integration
 
 The tool is designed to run unattended via systemd user timers:
 
-- **harjira.timer**: OnBootSec=2min, OnUnitActiveSec=1h (runs hourly)
-- **harjira.service**: Executes `harjira sync --quiet --auto-start --auto-stop`
+- **harv.timer**: OnBootSec=2min, OnUnitActiveSec=1h (runs hourly)
+- **harv.service**: Executes `harv sync --quiet --auto-start --auto-stop`
 
-Logs go to systemd journal: `journalctl --user -u harjira.service -f`
+Logs go to systemd journal: `journalctl --user -u harv.service -f`
 
 ## API Behavior
 
@@ -172,22 +172,22 @@ mod tests {
 
 ```bash
 # Dry run with verbose logging
-RUST_LOG=debug harjira sync --dry-run
+RUST_LOG=debug harv sync --dry-run
 
 # Test without git commits (should show "No Jira tickets found")
-harjira sync --repo /tmp/empty-repo
+harv sync --repo /tmp/empty-repo
 
 # Test multi-ticket selection (requires multiple commits with different tickets)
-harjira sync -v
+harv sync -v
 
 # Check systemd timer status
-systemctl --user status harjira.timer
-journalctl --user -u harjira.service -n 50
+systemctl --user status harv.timer
+journalctl --user -u harv.service -n 50
 ```
 
 ## AI-Powered Time Entry Generation
 
-The `harjira generate` command uses AI (OpenAI or Anthropic Claude) to generate Harvest time entries from a natural language summary of your workday.
+The `harv generate` command uses AI (OpenAI or Anthropic Claude) to generate Harvest time entries from a natural language summary of your workday.
 
 ### Core Flow (run_generate in main.rs:362)
 
@@ -224,7 +224,7 @@ The `harjira generate` command uses AI (OpenAI or Anthropic Claude) to generate 
 
 ### Configuration
 
-Add to `~/.config/harjira/config.toml`:
+Add to `~/.config/harv/config.toml`:
 ```toml
 [ai]
 enabled = false
@@ -245,22 +245,22 @@ Environment variable overrides:
 
 ```bash
 # Interactive mode (prompts for summary)
-harjira generate
+harv generate
 
 # With inline summary
-harjira generate "Fixed bugs in auth module, reviewed PRs, team meeting"
+harv generate "Fixed bugs in auth module, reviewed PRs, team meeting"
 
 # Override provider
-harjira generate --provider anthropic "Work summary here"
+harv generate --provider anthropic "Work summary here"
 
 # Auto-approve (skip confirmation)
-harjira generate --auto-approve "Work summary"
+harv generate --auto-approve "Work summary"
 
 # Custom target hours
-harjira generate --target-hours 6.5 "Work summary"
+harv generate --target-hours 6.5 "Work summary"
 
 # Dry run
-harjira generate --dry-run "Work summary"
+harv generate --dry-run "Work summary"
 ```
 
 ### Prompt Engineering
@@ -307,11 +307,11 @@ AI returns JSON with:
 
 ## Timer Continuation Feature
 
-The `harjira continue` command allows resuming work on previously tracked tasks by creating a new running timer from an existing stopped time entry.
+The `harv continue` command allows resuming work on previously tracked tasks by creating a new running timer from an existing stopped time entry.
 
 ### Core Flow (run_continue in main.rs:733)
 
-1. **Configuration Loading** → `Config::load()` reads `~/.config/harjira/config.toml`
+1. **Configuration Loading** → `Config::load()` reads `~/.config/harv/config.toml`
 2. **Date Range Calculation** → Determines lookback period (default: 1 day = today only, configurable with `--days` flag)
 3. **Entry Fetching** → `harvest_client.get_time_entries_range()` fetches entries for date range
 4. **Filtering** → Filters to stopped entries only (is_running == false) with valid project/task
@@ -324,16 +324,16 @@ The `harjira continue` command allows resuming work on previously tracked tasks 
 
 ```bash
 # Interactive mode (shows today's stopped entries)
-harjira continue
+harv continue
 
 # Look back more days
-harjira continue --days 7        # Last 7 days
+harv continue --days 7        # Last 7 days
 
 # Auto-start without prompts
-harjira continue --auto-start    # Skips timer conflict confirmation
+harv continue --auto-start    # Skips timer conflict confirmation
 
 # Dry run
-harjira continue --dry-run       # Preview without creating timer
+harv continue --dry-run       # Preview without creating timer
 ```
 
 ### Key Design Decisions
@@ -351,7 +351,7 @@ harjira continue --dry-run       # Preview without creating timer
 
 ### Configuration
 
-Add to `~/.config/harjira/config.toml`:
+Add to `~/.config/harv/config.toml`:
 ```toml
 [settings]
 continue_days = 1  # Default lookback period (optional, defaults to 1 if not set)

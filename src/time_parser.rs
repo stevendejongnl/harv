@@ -5,7 +5,7 @@ use crate::error::{HarjiraError, Result};
 /// # Examples
 ///
 /// ```
-/// use harjira::time_parser::parse_hours;
+/// use harv::time_parser::parse_hours;
 ///
 /// assert_eq!(parse_hours("1.5").unwrap(), 1.5);
 /// assert_eq!(parse_hours("1:30").unwrap(), 1.5);

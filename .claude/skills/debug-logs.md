@@ -1,14 +1,14 @@
 # Debug Logs
 
-View and analyze systemd logs for the harjira timer service to troubleshoot issues.
+View and analyze systemd logs for the harv timer service to troubleshoot issues.
 
 ## Steps
 
 1. Check if the systemd timer is installed and running:
-   - `systemctl --user status harjira.timer`
-   - `systemctl --user list-timers | grep harjira`
-2. Show recent logs: `journalctl --user -u harjira.service -n 50`
-3. Show live logs: `journalctl --user -u harjira.service -f`
+   - `systemctl --user status harv.timer`
+   - `systemctl --user list-timers | grep harv`
+2. Show recent logs: `journalctl --user -u harv.service -n 50`
+3. Show live logs: `journalctl --user -u harv.service -f`
 4. Check for common issues:
    - Configuration errors (missing tokens)
    - No git commits found

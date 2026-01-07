@@ -1,6 +1,6 @@
 [Unit]
-Description=Harvest-Jira Sync Timer
-Requires=harjira.service
+Description=Harv Timer
+Requires=harv.service
 
 [Timer]
 # Run 2 minutes after boot
