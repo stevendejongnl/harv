@@ -50,6 +50,17 @@ enum Commands {
     /// Manually add a time entry with interactive prompts
     Add,
 
+    /// Continue work on an existing time entry by starting a new timer
+    Continue {
+        /// Number of days to look back for entries (default: 1)
+        #[arg(long, short = 'd')]
+        days: Option<u8>,
+
+        /// Automatically start timer without prompting
+        #[arg(long)]
+        auto_start: bool,
+    },
+
     /// Generate time entries from a work summary using AI
     Generate {
         /// Natural language summary of work done today
@@ -127,6 +138,11 @@ fn main() {
         Some(Commands::Status) => run_status(ctx),
         Some(Commands::Stop) => run_stop(ctx),
         Some(Commands::Add) => run_add(ctx),
+        Some(Commands::Continue { days, auto_start }) => {
+            let mut continue_ctx = ctx.clone();
+            continue_ctx.auto_start = auto_start;
+            run_continue(continue_ctx, days)
+        }
         Some(Commands::Generate {
             summary,
             provider,
@@ -709,6 +725,138 @@ fn run_add(ctx: models::Context) -> Result<()> {
     if !ctx.quiet {
         let total = harvest_client.get_total_hours_for_date(&spent_date)?;
         println!("\nTotal time on {}: {:.2} hours", spent_date, total);
+    }
+
+    Ok(())
+}
+
+fn run_continue(ctx: models::Context, days: Option<u8>) -> Result<()> {
+    info!("Starting continue operation...");
+
+    // Load configuration
+    let config = Config::load()?;
+    let harvest_client = HarvestClient::new(config.harvest.clone())?;
+
+    // Determine lookback period (default: 1 day = today only)
+    let lookback_days = days.unwrap_or(config.settings.continue_days.unwrap_or(1));
+
+    // Calculate date range
+    let today = chrono::Local::now();
+    let from_date = if lookback_days == 1 {
+        // Today only
+        today.format("%Y-%m-%d").to_string()
+    } else {
+        // N days back
+        let from = today - chrono::Duration::days((lookback_days - 1) as i64);
+        from.format("%Y-%m-%d").to_string()
+    };
+    let to_date = today.format("%Y-%m-%d").to_string();
+
+    // Fetch time entries for date range
+    if !ctx.quiet {
+        if lookback_days == 1 {
+            prompt::display_info("Fetching today's time entries...");
+        } else {
+            prompt::display_info(&format!("Fetching entries from last {} days...", lookback_days));
+        }
+    }
+
+    let all_entries = harvest_client.get_time_entries_range(&from_date, &to_date, &ctx)?;
+
+    // Filter to stopped entries only (can't continue a running timer)
+    let stopped_entries: Vec<_> = all_entries
+        .into_iter()
+        .filter(|e| !e.is_running)
+        .collect();
+
+    // Filter out entries without project/task (can't restart them)
+    let valid_entries: Vec<_> = stopped_entries
+        .into_iter()
+        .filter(|e| e.project.is_some() && e.task.is_some())
+        .collect();
+
+    // Check if we have any entries to continue
+    if valid_entries.is_empty() {
+        let msg = if lookback_days == 1 {
+            "No stopped time entries found today"
+        } else {
+            &format!("No stopped time entries found in last {} days", lookback_days)
+        };
+        if !ctx.quiet {
+            prompt::display_info(msg);
+        }
+        return Ok(());
+    }
+
+    info!("Found {} valid entries to continue", valid_entries.len());
+
+    // Prompt user to select entry
+    let selected_entry = prompt::prompt_entry_selection(&valid_entries)?;
+
+    let notes = selected_entry
+        .notes
+        .as_deref()
+        .unwrap_or("(no description)");
+    let project_name = selected_entry
+        .project
+        .as_ref()
+        .map(|p| p.name.as_str())
+        .unwrap_or("Unknown");
+    let task_name = selected_entry
+        .task
+        .as_ref()
+        .map(|t| t.name.as_str())
+        .unwrap_or("Unknown");
+
+    info!("Selected entry: {} - {}", project_name, notes);
+
+    // Check for running timer conflicts
+    let running_timer = harvest_client.get_running_timer()?;
+
+    if let Some(timer) = running_timer {
+        // Check if timer is already for this task (same notes)
+        if let Some(timer_notes) = &timer.notes {
+            if timer_notes == notes {
+                if !ctx.quiet {
+                    prompt::display_info(&format!(
+                        "Timer already running for this task: {}",
+                        notes
+                    ));
+                }
+                return Ok(());
+            }
+        }
+
+        // Timer is for a different task
+        let should_stop = if ctx.auto_start {
+            // auto_start implies auto_stop for continue command
+            true
+        } else {
+            prompt::confirm_stop_timer(&timer, notes)?
+        };
+
+        if !should_stop {
+            if !ctx.quiet {
+                prompt::display_info("Keeping current timer running");
+            }
+            return Ok(());
+        }
+
+        // Stop current timer
+        harvest_client.stop_time_entry(timer.id, &ctx)?;
+        if !ctx.quiet {
+            prompt::display_success("Stopped previous timer");
+        }
+    }
+
+    // Start new timer from selected entry
+    harvest_client.start_timer_from_entry(selected_entry, &ctx)?;
+
+    if !ctx.quiet {
+        prompt::display_success(&format!(
+            "Started timer: {} > {} - {}",
+            project_name, task_name, notes
+        ));
     }
 
     Ok(())

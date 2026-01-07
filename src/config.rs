@@ -96,6 +96,8 @@ pub struct Settings {
     pub auto_stop: bool,
     #[serde(default = "default_true")]
     pub auto_select_single: bool,
+    #[serde(default)]
+    pub continue_days: Option<u8>,
 }
 
 fn default_true() -> bool {
@@ -108,6 +110,7 @@ impl Default for Settings {
             auto_start: false,
             auto_stop: false,
             auto_select_single: true,
+            continue_days: None,
         }
     }
 }
@@ -201,6 +204,9 @@ auto_stop = false
 
 # Automatically select ticket if only one is found
 auto_select_single = true
+
+# Number of days to look back when continuing work (default: 1 for today only)
+# continue_days = 1
 
 [ticket_filter]
 # Ignore specific ticket prefixes that match the pattern but aren't Jira tickets

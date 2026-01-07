@@ -501,3 +501,59 @@ pub fn confirm_stop_timer_for_new(current_timer: &TimeEntry) -> Result<bool> {
         .interact()
         .map_err(|_| HarjiraError::UserCancelled)
 }
+
+/// Prompt user to select a time entry from a list
+pub fn prompt_entry_selection(entries: &[TimeEntry]) -> Result<&TimeEntry> {
+    if entries.is_empty() {
+        return Err(HarjiraError::Harvest(
+            "No time entries available".to_string(),
+        ));
+    }
+
+    // Build display items
+    let items: Vec<String> = entries
+        .iter()
+        .map(|e| {
+            let notes = e.notes.as_deref().unwrap_or("(no description)");
+
+            let project_name = e
+                .project
+                .as_ref()
+                .map(|p| p.name.as_str())
+                .unwrap_or("Unknown Project");
+
+            let task_name = e
+                .task
+                .as_ref()
+                .map(|t| t.name.as_str())
+                .unwrap_or("Unknown Task");
+
+            let hours_str = e
+                .hours
+                .map(|h| format!(" ({:.2}h)", h))
+                .unwrap_or_default();
+
+            let date_str = if e.spent_date != chrono::Local::now().format("%Y-%m-%d").to_string() {
+                format!(" [{}]", e.spent_date)
+            } else {
+                String::new()
+            };
+
+            format!(
+                "{} • {} > {}{}{}",
+                notes, project_name, task_name, hours_str, date_str
+            )
+        })
+        .collect();
+
+    println!("\nSelect a time entry to continue:");
+
+    let selection = FuzzySelect::with_theme(&ColorfulTheme::default())
+        .with_prompt("Search and select entry")
+        .items(&items)
+        .default(0)
+        .interact()
+        .map_err(|_| HarjiraError::UserCancelled)?;
+
+    Ok(&entries[selection])
+}

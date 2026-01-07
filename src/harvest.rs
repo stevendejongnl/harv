@@ -103,6 +103,51 @@ impl HarvestClient {
         Ok(entries.into_iter().find(|e| e.is_running))
     }
 
+    /// Get time entries for a specific date range
+    pub fn get_time_entries_range(
+        &self,
+        from_date: &str,
+        to_date: &str,
+        _ctx: &Context,
+    ) -> Result<Vec<TimeEntry>> {
+        let url = format!(
+            "{}/time_entries?from={}&to={}",
+            self.base_url, from_date, to_date
+        );
+
+        debug!("GET {}", url);
+
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .map_err(|e| HarjiraError::Harvest(format!("Request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(HarjiraError::Harvest(format!(
+                "API request failed with status {}: {}",
+                status, error_text
+            )));
+        }
+
+        let entries_response: TimeEntriesResponse = response.json().map_err(|e| {
+            HarjiraError::Harvest(format!("Failed to parse time entries response: {}", e))
+        })?;
+
+        debug!(
+            "Retrieved {} time entries from {} to {}",
+            entries_response.time_entries.len(),
+            from_date,
+            to_date
+        );
+
+        Ok(entries_response.time_entries)
+    }
+
     /// Create a new time entry (start a timer)
     pub fn create_time_entry(
         &self,
@@ -214,6 +259,83 @@ impl HarvestClient {
 
         info!("Stopped time entry {}", entry_id);
         Ok(entry)
+    }
+
+    /// Start a new running timer based on an existing time entry
+    pub fn start_timer_from_entry(&self, entry: &TimeEntry, ctx: &Context) -> Result<TimeEntry> {
+        // Validate entry has required fields
+        let project_id = entry
+            .project
+            .as_ref()
+            .map(|p| p.id)
+            .ok_or_else(|| HarjiraError::Harvest("Entry has no project".to_string()))?;
+
+        let task_id = entry
+            .task
+            .as_ref()
+            .map(|t| t.id)
+            .ok_or_else(|| HarjiraError::Harvest("Entry has no task".to_string()))?;
+
+        let notes = entry
+            .notes
+            .clone()
+            .unwrap_or_else(|| "Continued work".to_string());
+
+        let today = Local::now().format("%Y-%m-%d").to_string();
+
+        let request = CreateTimeEntryRequest {
+            project_id: Some(project_id),
+            task_id: Some(task_id),
+            spent_date: today,
+            notes: notes.clone(),
+            external_reference: None,
+        };
+
+        if ctx.dry_run {
+            info!("[DRY RUN] Would create time entry:");
+            info!("  Project ID: {}", project_id);
+            info!("  Task ID: {}", task_id);
+            info!("  Notes: {}", notes);
+            return Ok(TimeEntry {
+                id: 0,
+                spent_date: request.spent_date,
+                hours: Some(0.0),
+                notes: Some(request.notes),
+                is_running: true,
+                project: entry.project.clone(),
+                task: entry.task.clone(),
+                started_time: None,
+            });
+        }
+
+        let url = format!("{}/time_entries", self.base_url);
+        debug!("POST {}", url);
+        debug!("Request body: {:?}", request);
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .map_err(|e| HarjiraError::Harvest(format!("Failed to create time entry: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response
+                .text()
+                .unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(HarjiraError::Harvest(format!(
+                "Failed to create time entry ({}): {}",
+                status, error_text
+            )));
+        }
+
+        let new_entry: TimeEntry = response.json().map_err(|e| {
+            HarjiraError::Harvest(format!("Failed to parse created time entry: {}", e))
+        })?;
+
+        info!("Started timer: {}", notes);
+        Ok(new_entry)
     }
 
     /// Calculate total hours logged today

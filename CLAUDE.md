@@ -94,6 +94,7 @@ repositories = []    # Empty = use current dir, or list of absolute paths
 auto_start = false         # Skip prompts when starting timers
 auto_stop = false          # Skip prompts when stopping existing timers
 auto_select_single = true  # Auto-select if only one ticket found
+continue_days = 1          # Default lookback period for continue command (optional)
 ```
 
 Initialize with: `harjira config init`
@@ -303,6 +304,88 @@ AI returns JSON with:
 - User summaries sent to external AI APIs (documented in config template)
 - No prompt injection risk due to structured JSON output
 - Validates all fields before creating entries
+
+## Timer Continuation Feature
+
+The `harjira continue` command allows resuming work on previously tracked tasks by creating a new running timer from an existing stopped time entry.
+
+### Core Flow (run_continue in main.rs:733)
+
+1. **Configuration Loading** → `Config::load()` reads `~/.config/harjira/config.toml`
+2. **Date Range Calculation** → Determines lookback period (default: 1 day = today only, configurable with `--days` flag)
+3. **Entry Fetching** → `harvest_client.get_time_entries_range()` fetches entries for date range
+4. **Filtering** → Filters to stopped entries only (is_running == false) with valid project/task
+5. **Entry Selection** → `prompt_entry_selection()` shows fuzzy searchable list with format: `{notes} • {project} > {task} ({hours}h) [{date}]`
+6. **Timer Conflict Resolution** → Same logic as run_sync: checks for running timer, prompts if exists
+7. **Timer Creation** → `start_timer_from_entry()` creates new running timer with today's date
+8. **Original Entry Preservation** → Original stopped entry remains unchanged (creates audit trail)
+
+### Command Usage
+
+```bash
+# Interactive mode (shows today's stopped entries)
+harjira continue
+
+# Look back more days
+harjira continue --days 7        # Last 7 days
+
+# Auto-start without prompts
+harjira continue --auto-start    # Skips timer conflict confirmation
+
+# Dry run
+harjira continue --dry-run       # Preview without creating timer
+```
+
+### Key Design Decisions
+
+**Date Handling**: New running timer always uses today's date (not the original entry's date). This ensures the timer is trackable in today's context even when continuing work from previous days.
+
+**Entry Preservation**: Original stopped entry is never modified or deleted. The continue command creates a NEW running timer with the same project/task/notes. This maintains a complete audit trail.
+
+**Timer Conflict Logic**: Reuses the same conflict resolution as `run_sync`:
+- Timer already running for same task (matching notes) → inform and skip
+- Timer running for different task + auto_start → auto-stop and start new
+- Timer running for different task + no auto_start → prompt user
+
+**Default Lookback**: 1 day (today only) by default. This makes the selection list fast to scan and focuses on most recent work. Users can override with `--days` flag for longer lookback periods.
+
+### Configuration
+
+Add to `~/.config/harjira/config.toml`:
+```toml
+[settings]
+continue_days = 1  # Default lookback period (optional, defaults to 1 if not set)
+```
+
+### API Methods
+
+**New Harvest API methods**:
+- `get_time_entries_range(from_date, to_date)` (harvest.rs:107) - Fetches entries for date range via GET /v2/time_entries
+- `start_timer_from_entry(entry)` (harvest.rs:265) - Creates running timer from existing entry, validates project/task exist
+
+**New Prompt function**:
+- `prompt_entry_selection(entries)` (prompt.rs:506) - Fuzzy searchable list of time entries
+
+### Edge Cases
+
+| Scenario | Behavior |
+|----------|----------|
+| No stopped entries in range | Display info message: "No stopped entries found today" (or "in last N days") |
+| Entry missing project/task | Filtered out during selection (not shown to user) |
+| Running timer for same task | Info message: "Timer already running for this task", early return |
+| Running timer for different task | Prompt to stop (or auto-stop with --auto-start flag) |
+| Original entry from past date | Creates new timer with today's date, original entry stays on its date |
+
+### Testing Scenarios
+
+Manual test cases:
+1. Continue entry from today → Creates timer with same project/task/notes
+2. Continue entry from 2 days ago with --days 3 → Creates timer with today's date
+3. Continue when timer already running for same task → Informs and skips
+4. Continue when timer running for different task → Prompts to stop
+5. Continue with --auto-start → Automatically stops conflicting timer
+6. Continue with no stopped entries → Shows info message
+7. Continue with --dry-run → Previews without creating timer
 
 ## Environment Variables
 
